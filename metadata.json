@@ -1,0 +1,6 @@
+{
+  "name": "Artilheiro",
+  "description": "Aplicativo para gestão de peladas de futebol: cadastro de atletas, ranking de artilheiros, controle financeiro e sorteio de times.",
+  "requestFramePermissions": [],
+  "majorCapabilities": []
+}

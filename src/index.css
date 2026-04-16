@@ -1,0 +1,39 @@
+@import "tailwindcss";
+
+@theme {
+  --color-green-primary: #1a5c2d;
+  --color-green-light: #2ecc71;
+  --color-gray-bg: #f5f6f7;
+  --color-gray-border: #e1e4e8;
+  --color-text-main: #2c3e50;
+  --color-text-muted: #7f8c8d;
+  --color-danger: #e74c3c;
+  
+  --font-sans: 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+}
+
+@layer base {
+  body {
+    @apply bg-gray-bg text-text-main font-sans;
+  }
+}
+
+.sleek-card {
+  @apply bg-white rounded-xl border border-gray-border shadow-sm flex flex-col overflow-hidden;
+}
+
+.sleek-card-header {
+  @apply px-5 py-4 border-b border-gray-border bg-gray-50/50 font-semibold flex justify-between items-center;
+}
+
+.sleek-status-pill {
+  @apply px-2 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider;
+}
+
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}

@@ -1,0 +1,90 @@
+{
+  "entities": {
+    "Player": {
+      "title": "Player",
+      "description": "Atleta da pelada",
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "Nome do atleta"
+        },
+        "goalsWeekly": {
+          "type": "number",
+          "description": "Gols marcados na semana"
+        },
+        "goalsMonthly": {
+          "type": "number",
+          "description": "Gols marcados no mês"
+        },
+        "statusFinanceiro": {
+          "type": "string",
+          "enum": ["em_dia", "devendo", "isento"],
+          "description": "Situação financeira do atleta"
+        },
+        "paymentAmount": {
+          "type": "number",
+          "description": "Valor pago ou a pagar"
+        },
+        "paymentType": {
+          "type": "string",
+          "enum": ["mensalista", "diarista", "isento"],
+          "description": "Tipo de pagamento"
+        },
+        "presente": {
+          "type": "boolean",
+          "description": "Se o atleta está presente na pelada atual"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Data de cadastro"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Data de última atualização"
+        }
+      },
+      "required": ["name", "goalsWeekly", "statusFinanceiro", "presente"]
+    },
+    "Settings": {
+      "title": "Settings",
+      "description": "Configurações globais da pelada",
+      "type": "object",
+      "properties": {
+        "peladaName": {
+          "type": "string",
+          "description": "Nome da pelada"
+        }
+      },
+      "required": ["peladaName"]
+    },
+    "Expense": {
+      "title": "Expense",
+      "description": "Registro de despesas da pelada",
+      "type": "object",
+      "properties": {
+        "description": { "type": "string" },
+        "amount": { "type": "number" },
+        "date": { "type": "string", "format": "date-time" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["description", "amount", "date"]
+    }
+  },
+  "firestore": {
+    "/players/{playerId}": {
+      "schema": "Player",
+      "description": "Coleção de atletas participantes"
+    },
+    "/settings/{settingId}": {
+      "schema": "Settings",
+      "description": "Configurações do aplicativo"
+    },
+    "/expenses/{expenseId}": {
+      "schema": "Expense",
+      "description": "Lista de despesas detalhadas"
+    }
+  }
+}

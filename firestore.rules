@@ -1,0 +1,75 @@
+// ===============================================================
+// Assumed Data Model
+// ===============================================================
+//
+// Collection: players
+// Document ID: auto-generated (playerId)
+// Fields:
+//   - name: string (required) - 2-50 chars
+//   - goalsWeekly: number (required) - >= 0
+//   - statusFinanceiro: string (required) - enum ['em_dia', 'devendo']
+//   - presente: boolean (required)
+//   - createdAt: timestamp (required)
+//   - updatedAt: timestamp (required)
+//
+// ===============================================================
+
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ===============================================================
+    // Helper Functions
+    // ===============================================================
+    
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function isAdmin() {
+      return isAuthenticated() && 
+        (request.auth.token.email == "martins91designer@gmail.com" && request.auth.token.email_verified == true);
+    }
+
+    function isValidPlayer(data) {
+      return data.keys().hasAll(['name', 'goalsWeekly', 'goalsMonthly', 'statusFinanceiro', 'paymentAmount', 'paymentType', 'presente', 'createdAt', 'updatedAt']) &&
+             data.name is string && data.name.size() >= 2 && data.name.size() <= 50 &&
+             data.goalsWeekly is number && data.goalsWeekly >= 0 &&
+             data.goalsMonthly is number && data.goalsMonthly >= 0 &&
+             data.statusFinanceiro in ['em_dia', 'devendo', 'isento'] &&
+             data.paymentAmount is number && data.paymentAmount >= 0 &&
+             data.paymentType in ['mensalista', 'diarista', 'isento'] &&
+             data.presente is bool &&
+             data.createdAt is timestamp &&
+             data.updatedAt is timestamp;
+    }
+
+    function isValidExpense(data) {
+      return data.keys().hasAll(['description', 'amount', 'date', 'createdAt']) &&
+             data.description is string && data.description.size() >= 2 && data.description.size() <= 100 &&
+             data.amount is number && data.amount >= 0 &&
+             data.date is timestamp &&
+             data.createdAt is timestamp;
+    }
+
+    match /players/{playerId} {
+      // Qualquer usuário autenticado pode ler os dados para ver o ranking e presença
+      allow read: if isAuthenticated();
+      
+      // Apenas o admin pode cadastrar e editar atletas
+      allow create: if isAdmin() && isValidPlayer(request.resource.data);
+      allow update: if isAdmin() && isValidPlayer(request.resource.data);
+      allow delete: if isAdmin();
+    }
+
+    match /settings/{settingId} {
+      allow read: if isAuthenticated();
+      allow write: if isAdmin();
+    }
+
+    match /expenses/{expenseId} {
+      allow read: if isAuthenticated();
+      allow write: if isAdmin() && (request.method != 'create' || isValidExpense(request.resource.data));
+    }
+  }
+}
