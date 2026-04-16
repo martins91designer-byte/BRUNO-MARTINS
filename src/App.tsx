@@ -1,19 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip, Legend } from 'recharts';
-import { 
-  collection, 
-  onSnapshot, 
-  addDoc, 
-  updateDoc, 
-  deleteDoc, 
-  setDoc,
-  doc, 
-  query, 
-  orderBy, 
-  serverTimestamp,
-  getDocFromServer
-} from 'firebase/firestore';
-import { onAuthStateChanged, User } from 'firebase/auth';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
   Plus, 
@@ -28,9 +14,11 @@ import {
   ChevronRight,
   UserPlus
 } from 'lucide-react';
-import { db, auth, loginWithGoogle, logout } from './firebase';
+import { supabase } from './lib/supabase';
 import { Player, Expense } from './types';
-import { handleFirestoreError } from './lib/error-handler';
+
+// Auth User type from Supabase
+import { User } from '@supabase/supabase-js';
 
 export default function App() {
   const [user, setUser] = useState<User | null>(null);
@@ -56,24 +44,16 @@ export default function App() {
   const [rankingPeriod, setRankingPeriod] = useState<'weekly' | 'monthly'>('weekly');
 
   useEffect(() => {
-    async function testConnection() {
-      try {
-        await getDocFromServer(doc(db, 'test', 'connection'));
-      } catch (error) {
-        if(error instanceof Error && error.message.includes('the client is offline')) {
-          console.error("Please check your Firebase configuration.");
-        }
-      }
-    }
-    testConnection();
-  }, []);
-
-  useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, (user) => {
-      setUser(user);
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      setUser(session?.user ?? null);
       setIsAuthReady(true);
     });
-    return () => unsubscribe();
+
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      setUser(session?.user ?? null);
+    });
+
+    return () => subscription.unsubscribe();
   }, []);
 
   useEffect(() => {
@@ -83,19 +63,46 @@ export default function App() {
       return;
     }
 
-    const q = query(collection(db, 'players'), orderBy('goalsWeekly', 'desc'));
-    const unsubscribe = onSnapshot(q, (snapshot) => {
-      const playersData = snapshot.docs.map(doc => ({
-        id: doc.id,
-        ...doc.data()
-      })) as Player[];
-      setPlayers(playersData);
+    const fetchPlayers = async () => {
+      const { data, error } = await supabase
+        .from('players')
+        .select('*')
+        .order('goals_weekly', { ascending: false });
+      
+      if (error) {
+        console.error('Error fetching players:', error);
+      } else {
+        // Map snake_case from DB to camelCase for App
+        const mappedPlayers = (data || []).map(p => ({
+          id: p.id,
+          name: p.name,
+          goalsWeekly: p.goals_weekly,
+          goalsMonthly: p.goals_monthly,
+          statusFinanceiro: p.status_financeiro,
+          paymentAmount: p.payment_amount,
+          paymentType: p.payment_type,
+          presente: p.presente,
+          createdAt: p.created_at,
+          updatedAt: p.updated_at
+        })) as Player[];
+        setPlayers(mappedPlayers);
+      }
       setLoading(false);
-    }, (error) => {
-      handleFirestoreError(error, 'list', 'players');
-    });
+    };
 
-    return () => unsubscribe();
+    fetchPlayers();
+
+    // Set up real-time subscription
+    const channel = supabase
+      .channel('players_channel')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'players' }, () => {
+        fetchPlayers();
+      })
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
   }, [isAuthReady, user]);
 
   useEffect(() => {
@@ -104,43 +111,96 @@ export default function App() {
       return;
     }
 
-    const q = query(collection(db, 'expenses'), orderBy('date', 'desc'));
-    const unsubscribe = onSnapshot(q, (snapshot) => {
-      const expensesData = snapshot.docs.map(doc => ({
-        id: doc.id,
-        ...doc.data(),
-        date: doc.data().date
-      })) as Expense[];
-      setExpenses(expensesData);
-    }, (error) => {
-      handleFirestoreError(error, 'list', 'expenses');
-    });
+    const fetchExpenses = async () => {
+      const { data, error } = await supabase
+        .from('expenses')
+        .select('*')
+        .order('date', { ascending: false });
+      
+      if (error) {
+        console.error('Error fetching expenses:', error);
+      } else {
+        setExpenses(data || []);
+      }
+    };
 
-    return () => unsubscribe();
+    fetchExpenses();
+
+    const channel = supabase
+      .channel('expenses_channel')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'expenses' }, () => {
+        fetchExpenses();
+      })
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
   }, [isAuthReady, user]);
 
   useEffect(() => {
     if (!isAuthReady || !user) return;
 
-    const unsubscribe = onSnapshot(doc(db, 'settings', 'global'), (snapshot) => {
-      if (snapshot.exists()) {
-        setPeladaName(snapshot.data().peladaName);
-      } else if (user.email === 'martins91designer@gmail.com') {
-        // Initial setup for the first time
-        setDoc(doc(db, 'settings', 'global'), { peladaName: 'Artilheiro FC' });
+    const fetchSettings = async () => {
+      const { data, error } = await supabase
+        .from('settings')
+        .select('pelada_name')
+        .eq('id', 'global')
+        .single();
+      
+      if (error) {
+        if (error.code === 'PGRST116' && user.email === 'martins91designer@gmail.com') {
+          // Initial setup
+          await supabase.from('settings').insert({ id: 'global', pelada_name: 'Artilheiro FC' });
+          setPeladaName('Artilheiro FC');
+        } else {
+          console.error('Error fetching settings:', error);
+        }
+      } else {
+        setPeladaName(data.pelada_name);
+      }
+    };
+
+    fetchSettings();
+
+    const channel = supabase
+      .channel('settings_channel')
+      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'settings', filter: 'id=eq.global' }, (payload) => {
+        setPeladaName((payload.new as any).pelada_name);
+      })
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [isAuthReady, user]);
+
+  const loginWithGoogle = async () => {
+    const { error } = await supabase.auth.signInWithOAuth({
+      provider: 'google',
+      options: {
+        redirectTo: window.location.origin
       }
     });
+    if (error) console.error('Error logging in:', error);
+  };
 
-    return () => unsubscribe();
-  }, [isAuthReady, user]);
+  const logout = async () => {
+    const { error } = await supabase.auth.signOut();
+    if (error) console.error('Error logging out:', error);
+  };
 
   const savePeladaName = async () => {
     if (!tempPeladaName.trim()) return;
     try {
-      await setDoc(doc(db, 'settings', 'global'), { peladaName: tempPeladaName.trim() });
+      const { error } = await supabase
+        .from('settings')
+        .update({ pelada_name: tempPeladaName.trim() })
+        .eq('id', 'global');
+      if (error) throw error;
       setIsEditingName(false);
     } catch (error) {
-      handleFirestoreError(error, 'write', 'settings/global');
+      console.error('Error saving pelada name:', error);
     }
   };
 
@@ -149,46 +209,51 @@ export default function App() {
     if (!newPlayerName.trim()) return;
 
     try {
-      await addDoc(collection(db, 'players'), {
-        name: newPlayerName.trim(),
-        goalsWeekly: 0,
-        goalsMonthly: 0,
-        statusFinanceiro: newPlayerStatus,
-        paymentType: newPlayerPaymentType,
-        paymentAmount: newPlayerAmount,
-        presente: false,
-        createdAt: serverTimestamp(),
-        updatedAt: serverTimestamp()
-      });
+      const { error } = await supabase
+        .from('players')
+        .insert({
+          name: newPlayerName.trim(),
+          goals_weekly: 0,
+          goals_monthly: 0,
+          status_financeiro: newPlayerStatus,
+          payment_type: newPlayerPaymentType,
+          payment_amount: newPlayerAmount,
+          presente: false
+        });
+      if (error) throw error;
       setNewPlayerName('');
       setNewPlayerAmount(0);
       setNewPlayerStatus('em_dia');
       setShowAddModal(false);
     } catch (error) {
-      handleFirestoreError(error, 'create', 'players');
+      console.error('Error adding player:', error);
     }
   };
 
   const togglePresence = async (player: Player) => {
     try {
-      await updateDoc(doc(db, 'players', player.id), {
-        presente: !player.presente,
-        updatedAt: serverTimestamp()
-      });
+      const { error } = await supabase
+        .from('players')
+        .update({ presente: !player.presente })
+        .eq('id', player.id);
+      if (error) throw error;
     } catch (error) {
-      handleFirestoreError(error, 'update', `players/${player.id}`);
+      console.error('Error toggling presence:', error);
     }
   };
 
   const updateGoals = async (player: Player, increment: number) => {
     try {
-      await updateDoc(doc(db, 'players', player.id), {
-        goalsWeekly: Math.max(0, player.goalsWeekly + increment),
-        goalsMonthly: Math.max(0, player.goalsMonthly + increment),
-        updatedAt: serverTimestamp()
-      });
+      const { error } = await supabase
+        .from('players')
+        .update({
+          goals_weekly: Math.max(0, player.goalsWeekly + increment),
+          goals_monthly: Math.max(0, player.goalsMonthly + increment)
+        })
+        .eq('id', player.id);
+      if (error) throw error;
     } catch (error) {
-      handleFirestoreError(error, 'update', `players/${player.id}`);
+      console.error('Error updating goals:', error);
     }
   };
 
@@ -198,12 +263,13 @@ export default function App() {
       const currentIndex = statuses.indexOf(player.statusFinanceiro);
       const nextStatus = statuses[(currentIndex + 1) % statuses.length];
 
-      await updateDoc(doc(db, 'players', player.id), {
-        statusFinanceiro: nextStatus,
-        updatedAt: serverTimestamp()
-      });
+      const { error } = await supabase
+        .from('players')
+        .update({ status_financeiro: nextStatus })
+        .eq('id', player.id);
+      if (error) throw error;
     } catch (error) {
-      handleFirestoreError(error, 'update', `players/${player.id}`);
+      console.error('Error toggling finance:', error);
     }
   };
 
@@ -212,46 +278,58 @@ export default function App() {
     if (!newExpenseDesc.trim() || newExpenseAmount <= 0) return;
 
     try {
-      await addDoc(collection(db, 'expenses'), {
-        description: newExpenseDesc.trim(),
-        amount: newExpenseAmount,
-        date: serverTimestamp(),
-        createdAt: serverTimestamp()
-      });
+      const { error } = await supabase
+        .from('expenses')
+        .insert({
+          description: newExpenseDesc.trim(),
+          amount: newExpenseAmount,
+          date: new Date().toISOString()
+        });
+      if (error) throw error;
       setNewExpenseDesc('');
       setNewExpenseAmount(0);
       setShowExpenseModal(false);
     } catch (error) {
-      handleFirestoreError(error, 'create', 'expenses');
+      console.error('Error adding expense:', error);
     }
   };
 
   const deleteExpense = async (id: string) => {
     if (!window.confirm('Excluir esta despesa?')) return;
     try {
-      await deleteDoc(doc(db, 'expenses', id));
+      const { error } = await supabase
+        .from('expenses')
+        .delete()
+        .eq('id', id);
+      if (error) throw error;
     } catch (error) {
-      handleFirestoreError(error, 'delete', `expenses/${id}`);
+      console.error('Error deleting expense:', error);
     }
   };
 
   const deletePlayer = async (id: string) => {
     if (!window.confirm('Excluir atleta?')) return;
     try {
-      await deleteDoc(doc(db, 'players', id));
+      const { error } = await supabase
+        .from('players')
+        .delete()
+        .eq('id', id);
+      if (error) throw error;
     } catch (error) {
-      handleFirestoreError(error, 'delete', `players/${id}`);
+      console.error('Error deleting player:', error);
     }
   };
 
   const updatePaymentInfo = async (player: Player, field: 'paymentAmount' | 'paymentType', value: any) => {
     try {
-      await updateDoc(doc(db, 'players', player.id), {
-        [field]: value,
-        updatedAt: serverTimestamp()
-      });
+      const dbField = field === 'paymentAmount' ? 'payment_amount' : 'payment_type';
+      const { error } = await supabase
+        .from('players')
+        .update({ [dbField]: value })
+        .eq('id', player.id);
+      if (error) throw error;
     } catch (error) {
-      handleFirestoreError(error, 'update', `players/${player.id}`);
+      console.error('Error updating payment info:', error);
     }
   };
 

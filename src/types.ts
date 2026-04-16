@@ -1,5 +1,3 @@
-import { Timestamp } from 'firebase/firestore';
-
 export interface Player {
   id: string;
   name: string;
@@ -9,16 +7,16 @@ export interface Player {
   paymentAmount: number;
   paymentType: 'mensalista' | 'diarista' | 'isento';
   presente: boolean;
-  createdAt: Timestamp;
-  updatedAt: Timestamp;
+  createdAt: string;
+  updatedAt: string;
 }
 
 export interface Expense {
   id: string;
   description: string;
   amount: number;
-  date: Timestamp;
-  createdAt: Timestamp;
+  date: string;
+  createdAt: string;
 }
 
 export type OperationType = 'create' | 'update' | 'delete' | 'list' | 'get' | 'write';
